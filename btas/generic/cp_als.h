@@ -73,7 +73,7 @@ namespace btas {
     /// Constructor of object CP_ALS
     /// \param[in] tensor The tensor object to be decomposed
 
-    CP_ALS(Tensor &tensor) : tensor_ref(tensor), ndim(tensor_ref.rank()), size(tensor_ref.size()) {
+    CP_ALS(Tensor &tensor) : tensor_ref(tensor), ndim(tensor_ref.rank()), size(tensor_ref.size()), Ap1(tensor.rank() + 1) {
 #if not defined(BTAS_HAS_CBLAS) || not defined(_HAS_INTEL_MKL)
       BTAS_EXCEPTION_MESSAGE(__FILE__, __LINE__, "CP_ALS requires LAPACKE or mkl_lapack");
 #endif
@@ -431,6 +431,7 @@ namespace btas {
 
    private:
     std::vector<Tensor> A;  // The vector of factor matrices
+    std::vector<Tensor> Ap1;
     Tensor &tensor_ref;     // The reference tensor being decomposed
     const int ndim;         // Number of modes in the reference tensor
     int size;               // Number of elements in the reference tensor
@@ -507,6 +508,7 @@ namespace btas {
         }
 
         srand(3);
+
         // Fill the remaining columns in the set of factor matrices with dimension < SVD_rank with random numbers
         for(auto& i: modes_w_dim_LT_svd){
           int R = tensor_ref.extent(i);
@@ -614,6 +616,7 @@ namespace btas {
     void ALS(int rank, bool dir, int max_als, bool calculate_epsilon, double tcutALS, double &epsilon, bool symm) {
       auto count = 0;
       double test = tcutALS + 1.0;
+      auto numUnsuccess = 0;
 
       if(symm){
         A[ndim - 1] = A[ndim -2];
@@ -626,9 +629,13 @@ namespace btas {
         count++;
         test = 0.0;
 
+        if(count > 10 && count % 5 == 0){
+          line_Search(count/5, rank, numUnsuccess);
+        }
+
         for (auto i = 0; i < ((symm) ? ndim - 1: ndim); i++) {
           if (dir)
-            direct(i, rank, test, symm);
+            direct(i, rank, test, symm, count);
           else
             update_w_KRP(i, rank, test, symm);
         }
@@ -642,6 +649,40 @@ namespace btas {
         epsilon = norm(reconstruct() - tensor_ref);
       }
       //num_ALS += count;
+    }
+
+    void line_Search(int it, int rank, int & numUnsuccess){
+      double old_norm = norm(reconstruct() - tensor_ref);
+      std::vector<Tensor> a(ndim + 1);
+      for(int i = 0; i < ndim + 1; i++){
+        a[i] = Ap1[i];
+      }
+
+      for(int i = 0; i < ndim; i++){
+        double d = pow(it, ((numUnsuccess > 4) ? 1/4 : 1/3));
+        Tensor temp(A[i].range());
+        temp = Ap1[i] - A[i];
+        scal(d, temp);
+        Ap1[i] = A[i] + temp;
+        if(i != ndim - 1) {
+          for (int r = 0; r < rank; r++) {
+            normCol(i, r);
+          }
+        }
+      }
+      for(int r = 0; r < rank; r++){
+        A[ndim](r) = normCol(ndim - 1, r);
+      }
+
+      if(norm(reconstruct() - tensor_ref) > old_norm){
+        numUnsuccess++;
+        for(int i = 0; i < ndim + 1; i++){
+          A[i] = a[i];
+        }
+      }
+      else{
+        std::cout << "Line search successful" << std::endl;
+      }
     }
 
     /// Calculates an optimized CP factor matrix using Khatri-Rao product
@@ -746,7 +787,7 @@ namespace btas {
     /// \param[in out] test The difference between previous and current iteration
     /// factor matrix
 
-    void direct(int n, int rank, double &test, bool symm) {
+    void direct(int n, int rank, double &test, bool symm, int count) {
       //auto t1 = std::chrono::high_resolution_clock::now();
       //auto t2 = std::chrono::high_resolution_clock::now();
       //std::chrono::duration<double> time = t2 - t1;
@@ -900,13 +941,31 @@ namespace btas {
 
       // compute the difference between this new factor matrix and the previous
       // iteration
-      for (auto l = 0; l < rank; ++l) A[ndim](l) = normCol(an, l);
+      Tensor lambda(A[ndim].range());
+      auto lam_ptr = lambda.data();
+      for (auto l = 0; l < rank; ++l) *(lam_ptr + l) = normCol(an, l);
       auto nrm = norm(A[n] - an);
       if(n == ndim - 2 && symm){
         test += nrm;
+        if(count > 10 && count % 5 == 4)
+          Ap1[n+1] = an;
       }
       test += nrm;
-      A[n] = an;
+      if(count > 10 && count % 5 == 4){
+        Ap1[n] = an;
+        Ap1[ndim] = lambda;
+      }
+      else {
+        A[n] = an;
+        A[ndim] = lambda;
+      }
+//      for (auto l = 0; l < rank; ++l) A[ndim](l) = normCol(an, l);
+//      auto nrm = norm(A[n] - an);
+//      if(n == ndim - 2 && symm){
+//        test += nrm;
+//      }
+//      test += nrm;
+//      A[n] = an;
       //printf("%3.8f\t%3.8f\t%3.8f\t%3.8f", first_gemm, second_gemm, third_gemm, final_gemm);
       //std::cout << std::endl;
     }
@@ -1020,30 +1079,7 @@ namespace btas {
       Tensor Vt(Range{Range1{R}, Range1{R}});
 
 // btas has no generic SVD for MKL LAPACKE
-#ifdef _HAS_INTEL_MKL
-      double worksize;
-      double *work = &worksize;
-      lapack_int lwork = -1;
-      lapack_int info = 0;
-
-      char A = 'A';
-
-      // Call dgesvd with lwork = -1 to query optimal workspace size:
-
-      info = LAPACKE_dgesvd_work(LAPACK_ROW_MAJOR, A, A, R, R, a.data(), R, s.data(), U.data(), R, Vt.data(), R,
-                                 &worksize, lwork);
-      if (info)
-        ;
-      lwork = (lapack_int)worksize;
-      work = (double *)malloc(sizeof(double) * lwork);
-
-      info = LAPACKE_dgesvd_work(LAPACK_ROW_MAJOR, A, A, R, R, a.data(), R, s.data(), U.data(), R, Vt.data(), R, work,
-                                 lwork);
-      if (info)
-        ;
-
-      free(work);
-#else  // BTAS_HAS_CBLAS
+#ifdef BTAS_HAS_CBLAS
 
       gesvd('A', 'A', a, s, U, Vt);
 

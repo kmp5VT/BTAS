@@ -37,8 +37,61 @@ template<> struct gesvd_impl<true>
    {
       assert(false); // gesvd_impl<true> for a generic iterator type has not yet been implemented.
    }
+#if _HAS_INTEL_MKL
 
-#ifdef BTAS_HAS_CBLAS
+// TODO implement the other types for MKL lapack and clapack
+
+  static void call(
+          const CBLAS_ORDER& order,
+          const char& jobu,
+          const char& jobvt,
+          const unsigned long& Msize,
+          const unsigned long& Nsize,
+          double* itrA,
+          const unsigned long& LDA,
+          double* itrS,
+          double* itrU,
+          const unsigned long& LDU,
+          double* itrVt,
+          const unsigned long& LDVt){
+    unsigned long Ksize = (Msize < Nsize) ? Msize : Nsize;
+    double* superb = new double[Ksize-1];
+    auto info = LAPACKE_dgesvd(order, jobu, jobvt, Msize, Nsize, itrA, LDA, itrS, itrU, LDU, itrVt, LDVt, superb);
+    delete [] superb;
+  }
+
+#elif _MADNESS_MKL
+
+  static void call(
+          const CBLAS_ORDER& order,
+          const char& jobu,
+          const char& jobvt,
+          const unsigned long& Msize,
+          const unsigned long& Nsize,
+          double* itrA,
+          const unsigned long& LDA,
+          double* itrS,
+          double* itrU,
+          const unsigned long& LDU,
+          double* itrVt,
+          const unsigned long& LDVt){
+    unsigned long Ksize = (Msize < Nsize) ? Msize : Nsize;
+    double* superb = new double[Ksize-1];
+    double worksize;
+    double *work = &worksize;
+    lapack_int lwork = -1;
+    int info = 0;
+    dgesvd(jobu, jobvt, Msize, Nsize, itrA, LDA, itrS, iterU, LDU, itrVt, LDVt, work, lwork, info, (int) 1, (int) 1);
+
+    lwork = (lapack_int)worksize;
+    work = (double *)malloc(sizeof(double) * lwork);
+
+    dgesvd(jobu, jobvt, Msize, Nsize, itrA, LDA, itrS, iterU, LDU, itrVt, LDVt, work, lwork, info, (int) 1, (int) 1);
+
+    delete [] superb;
+  }
+
+#elif BTAS_HAS_CBLAS
 
    static void call (
       const CBLAS_ORDER& order,
