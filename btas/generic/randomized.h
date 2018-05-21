@@ -10,6 +10,8 @@
 
 #ifdef _HAS_INTEL_MKL
 
+#include <mkl_lapacke.h>
+
 namespace btas {
 
 /// \param[in,out] A In: An empty matrix of size column dimension of the nth

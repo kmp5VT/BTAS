@@ -6,6 +6,7 @@
 #include "core_contract.h"
 #include "flatten.h"
 #include <btas/btas.h>
+#include <mkl_lapacke.h>
 
 #include <cstdlib>
 

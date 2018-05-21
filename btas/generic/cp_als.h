@@ -14,6 +14,19 @@
 #include "swap.h"
 #include "tucker.h"
 
+#ifdef BTAS_HAS_CBLAS
+#ifdef _HAS_INTEL_MKL
+
+#include <mkl_lapacke.h>
+
+#else
+
+#include <lapacke.h>
+
+#endif // _HAS_INTEL_MKL
+
+#endif // BTAS_HAS_CBLAS
+
 namespace btas {
 
   /** \brief Computes the Canonical Product (CP) decomposition of an order-N
@@ -76,9 +89,6 @@ namespace btas {
     CP_ALS(Tensor &tensor) : tensor_ref(tensor), ndim(tensor_ref.rank()), size(tensor_ref.size()), Ap1(tensor.rank() + 1) {
 #if not defined(BTAS_HAS_CBLAS) || not defined(_HAS_INTEL_MKL)
       BTAS_EXCEPTION_MESSAGE(__FILE__, __LINE__, "CP_ALS requires LAPACKE or mkl_lapack");
-#endif
-#ifdef _HAS_INTEL_MKL
-#include <mkl_trans.h>
 #endif
     }
 
@@ -617,6 +627,7 @@ namespace btas {
       auto count = 0;
       double test = tcutALS + 1.0;
       auto numUnsuccess = 0;
+      bool do_linesearch = false;
 
       if(symm){
         A[ndim - 1] = A[ndim -2];
@@ -625,23 +636,26 @@ namespace btas {
       // Until either the initial guess is converged or it runs out of iterations
       // update the factor matrices with or without Khatri-Rao product
       // intermediate
+      std::cout << "count\ttest" << std::endl;
       while (count <= max_als && test > tcutALS) {
         count++;
         test = 0.0;
 
-        if(count > 10 && count % 5 == 0){
+        if(do_linesearch){
           line_Search(count/5, rank, numUnsuccess);
         }
 
+        do_linesearch = count > 10; //false; //(count > 10 && count % 5 == 4);
         for (auto i = 0; i < ((symm) ? ndim - 1: ndim); i++) {
           if (dir)
-            direct(i, rank, test, symm, count);
+            direct(i, rank, test, symm, do_linesearch);
           else
             update_w_KRP(i, rank, test, symm);
         }
         if(symm){
           A[ndim - 1] = A[ndim - 2];
         }
+        std::cout << count <<  "\t" << test << std::endl;
       }
 
       // Checks loss function if required
@@ -663,16 +677,19 @@ namespace btas {
         Tensor temp(A[i].range());
         temp = Ap1[i] - A[i];
         scal(d, temp);
-        Ap1[i] = A[i] + temp;
-        if(i != ndim - 1) {
-          for (int r = 0; r < rank; r++) {
-            normCol(i, r);
-          }
+        A[i] = A[i] + temp;
+        for(int r = 0; r < rank; r++){
+          normCol(i, r);
         }
+//        if(i != ndim - 1) {
+//          for (int r = 0; r < rank; r++) {
+//            normCol(i, r);
+//          }
+//        }
       }
-      for(int r = 0; r < rank; r++){
-        A[ndim](r) = normCol(ndim - 1, r);
-      }
+//      for(int r = 0; r < rank; r++){
+//        A[ndim](r) = normCol(ndim - 1, r);
+//      }
 
       if(norm(reconstruct() - tensor_ref) > old_norm){
         numUnsuccess++;
@@ -680,9 +697,9 @@ namespace btas {
           A[i] = a[i];
         }
       }
-      else{
-        std::cout << "Line search successful" << std::endl;
-      }
+//      else{
+//        std::cout << "Line search successful" << std::endl;
+//      }
     }
 
     /// Calculates an optimized CP factor matrix using Khatri-Rao product
@@ -787,7 +804,7 @@ namespace btas {
     /// \param[in out] test The difference between previous and current iteration
     /// factor matrix
 
-    void direct(int n, int rank, double &test, bool symm, int count) {
+    void direct(int n, int rank, double &test, bool symm, bool linesearch) {
       //auto t1 = std::chrono::high_resolution_clock::now();
       //auto t2 = std::chrono::high_resolution_clock::now();
       //std::chrono::duration<double> time = t2 - t1;
@@ -947,11 +964,11 @@ namespace btas {
       auto nrm = norm(A[n] - an);
       if(n == ndim - 2 && symm){
         test += nrm;
-        if(count > 10 && count % 5 == 4)
+        if(linesearch)
           Ap1[n+1] = an;
       }
       test += nrm;
-      if(count > 10 && count % 5 == 4){
+      if(linesearch){
         Ap1[n] = an;
         Ap1[ndim] = lambda;
       }
@@ -1083,6 +1100,8 @@ namespace btas {
 
       gesvd('A', 'A', a, s, U, Vt);
 
+#else
+      BTAS_EXCEPTION("CP ALS requires Lapack");
 #endif
 
       // Inverse the Singular values with threshold 1e-13 = 0

@@ -14,6 +14,18 @@
 #include "swap.h"
 #include "tucker.h"
 
+#ifdef BTAS_HAS_CBLAS
+#ifdef _HAS_INTEL_MKL
+
+#include <mkl_lapacke.h>
+
+#else
+
+#include <lapacke.h>
+
+#endif // _HAS_INTEL_MKL
+#endif // BTAS_HAS_CBLAS
+
 namespace btas {
 
   /** \brief Computes the Canonical Product (CP) decomposition of an order-N
@@ -76,9 +88,6 @@ namespace btas {
     CP_RALS(Tensor &tensor) : tensor_ref(tensor), ndim(tensor_ref.rank()), size(tensor_ref.size()) {
 #if not defined(BTAS_HAS_CBLAS) || not defined(_HAS_INTEL_MKL)
       BTAS_EXCEPTION_MESSAGE(__FILE__, __LINE__, "CP_ALS requires LAPACKE or mkl_lapack");
-#endif
-#ifdef _HAS_INTEL_MKL
-#include <mkl_trans.h>
 #endif
     }
 

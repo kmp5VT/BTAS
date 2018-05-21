@@ -22,11 +22,6 @@ extern "C" {
 #include <mkl_cblas.h>
 #include <mkl_lapacke.h>
 
-#elif _MADNESS_MKL
-
-#include <madness/tensor/cblas.h>
-#include <madness/tensor/clapack.h>
-
 #else  // _HAS_INTEL_MKL
 
 #include <cblas.h>

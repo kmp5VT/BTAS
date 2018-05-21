@@ -3,6 +3,7 @@
 
 #ifdef _HAS_INTEL_MKL
 
+#include <mkl_trans.h>
 #include <btas/btas.h>
 #include <mkl_trans.h>
 

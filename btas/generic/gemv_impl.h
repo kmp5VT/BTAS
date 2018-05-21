@@ -15,6 +15,18 @@
 
 #include <btas/generic/scal_impl.h>
 
+#ifdef BTAS_HAS_CBLAS
+#ifdef _HAS_INTEL_MKL
+
+#include <mkl_cblas.h>
+
+#else
+
+#include <cblas.h>
+
+#endif
+#endif
+
 namespace btas {
 
 

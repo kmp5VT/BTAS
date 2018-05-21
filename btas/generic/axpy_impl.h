@@ -12,6 +12,20 @@
 #include <btas/generic/numeric_type.h>
 #include <btas/generic/tensor_iterator_wrapper.h>
 
+#ifdef BTAS_HAS_CBLAS
+
+#ifdef _HAS_INTEL_MKL
+
+#include <mkl_lapacke.h>
+
+#else
+
+#include <lapacke.h>
+
+#endif //_HAS_INTEL_MKL
+
+#endif //BTAS_HAS_CBLAS
+
 namespace btas {
 
 //  ================================================================================================
